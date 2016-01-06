@@ -1,4 +1,4 @@
-#//  Copyright 2015 richards-tech, LLC
+#//  Copyright 2015-2016 richards-tech, LLC
 #//
 #//  Licensed under the Apache License, Version 2.0 (the "License");
 #//  you may not use this file except in compliance with the License.
@@ -15,3 +15,5 @@
 org.richardstech.nifi.processors.GetMQTTSensorProcessor
 org.richardstech.nifi.processors.GetMQTTVideoProcessor
 org.richardstech.nifi.processors.GetMQTTAudioProcessor
+org.richardstech.nifi.processors.ReactToInsteonProcessor
+org.richardstech.nifi.processors.PutMQTTProcessor

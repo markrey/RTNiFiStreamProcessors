@@ -30,8 +30,11 @@ import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processor.ProcessSession;
-import org.apache.nifi.processor.io.OutputStreamCallback;
+import org.apache.nifi.processor.io.InputStreamCallback;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
+import org.apache.commons.io.IOUtils;
 
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
@@ -43,51 +46,36 @@ import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 
 import java.util.*;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.io.OutputStream;
+import java.util.concurrent.atomic.AtomicReference;
+import java.io.InputStream;
 import java.io.IOException;
-import org.json.JSONObject;
 
-@Tags({"GetMQTTSensorProcessor"})
-@CapabilityDescription("Gets sensor messages from an MQTT broker")
+@InputRequirement(Requirement.INPUT_REQUIRED)
+@Tags({"PutMQTTProcessor"})
+@CapabilityDescription("Publishes message to an MQTT topic")
 @SeeAlso({})
-@ReadsAttributes({@ReadsAttribute(attribute="", description="")})
+@ReadsAttributes({@ReadsAttribute(attribute="topic", description="Topic to publish message to")})
 @WritesAttributes({@WritesAttribute(attribute="", description="")})
-public class GetMQTTSensorProcessor extends AbstractProcessor implements MqttCallback {
+public class PutMQTTProcessor extends AbstractProcessor implements MqttCallback {
 
-    String topic;
     String broker;
     String clientID;
     
     MemoryPersistence persistence = new MemoryPersistence();
     MqttClient mqttClient;
     
-    LinkedBlockingQueue<MQTTQueueMessage> mqttQueue = new LinkedBlockingQueue<MQTTQueueMessage>();
-
     public static final PropertyDescriptor PROPERTY_BROKER_ADDRESS = new PropertyDescriptor
             .Builder().name("Broker address")
             .description("MQTT broker address (tcp://<host>:<port>")
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
-
-    public static final PropertyDescriptor PROPERTY_MQTT_TOPIC = new PropertyDescriptor
-            .Builder().name("MQTT topic")
-            .description("MQTT topic to subscribe to")
-            .required(true)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .build();
-
+    
     public static final PropertyDescriptor PROPERTY_MQTT_CLIENTID = new PropertyDescriptor
             .Builder().name("MQTT client ID")
             .description("MQTT client ID to use")
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .build();
-
-    public static final Relationship RELATIONSHIP_SUCCESS = new Relationship.Builder()
-            .name("SUCCESS")
-            .description("MQTTStream message output")
             .build();
 
     private List<PropertyDescriptor> descriptors;
@@ -105,19 +93,16 @@ public class GetMQTTSensorProcessor extends AbstractProcessor implements MqttCal
 
     @Override
     public void messageArrived(String topic, MqttMessage message) throws Exception {
-         mqttQueue.add(new MQTTQueueMessage(topic, message.getPayload()));
     }
 
     @Override
     protected void init(final ProcessorInitializationContext context) {
         final List<PropertyDescriptor> descriptors = new ArrayList<PropertyDescriptor>();
         descriptors.add(PROPERTY_BROKER_ADDRESS);
-        descriptors.add(PROPERTY_MQTT_TOPIC);
         descriptors.add(PROPERTY_MQTT_CLIENTID);
         this.descriptors = Collections.unmodifiableList(descriptors);
 
         final Set<Relationship> relationships = new HashSet<Relationship>();
-        relationships.add(RELATIONSHIP_SUCCESS);
         this.relationships = Collections.unmodifiableSet(relationships);
     }
 
@@ -135,7 +120,6 @@ public class GetMQTTSensorProcessor extends AbstractProcessor implements MqttCal
     public void onScheduled(final ProcessContext context) {
         try {
             broker = context.getProperty(PROPERTY_BROKER_ADDRESS).getValue();
-            topic = context.getProperty(PROPERTY_MQTT_TOPIC).getValue();
             clientID = context.getProperty(PROPERTY_MQTT_CLIENTID).getValue();
             mqttClient = new MqttClient(broker, clientID, persistence);
             MqttConnectOptions connOpts = new MqttConnectOptions();
@@ -143,8 +127,7 @@ public class GetMQTTSensorProcessor extends AbstractProcessor implements MqttCal
             connOpts.setCleanSession(true);
             getLogger().info("Connecting to broker: " + broker);
             mqttClient.connect(connOpts);
-            mqttClient.subscribe(topic, 0);
-         } catch(MqttException me) {
+        } catch(MqttException me) {
             getLogger().error("msg "+me.getMessage());
         }
     }
@@ -161,34 +144,49 @@ public class GetMQTTSensorProcessor extends AbstractProcessor implements MqttCal
 
     @Override
     public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
-        final List messageList = new LinkedList();
-        mqttQueue.drainTo(messageList);
-        if (messageList.isEmpty())
-            return;
+        final AtomicReference<String> message = new AtomicReference<>();
+
+        FlowFile flowfile = session.get();
+        message.set("");
+
+        // get the MQTT topic
         
-        FlowFile flowfile = session.create();
-        Iterator iterator = messageList.iterator();
-        while (iterator.hasNext()) {
-            final MQTTQueueMessage m = (MQTTQueueMessage)iterator.next();
-            String originalDeviceID;
-            try {
-                JSONObject obj = new JSONObject(new String(m.message, "UTF-8"));
-                originalDeviceID = obj.get("deviceID").toString();
-            } catch(Exception e) {
-                originalDeviceID = "unknown";
-            }
-            
-            flowfile = session.putAttribute(flowfile, CoreAttributes.FILENAME.key(), originalDeviceID);
-            flowfile = session.append(flowfile, new OutputStreamCallback() {
+        String topic = flowfile.getAttribute("destination");
 
-                @Override
-                public void process(final OutputStream out) throws IOException {
-                     out.write(m.message);
+        if (topic == null) {
+            getLogger().error("No topic attribute on flowfile");
+            return;
+        }
+        
+        // do the read
+        
+        session.read(flowfile, new InputStreamCallback() {
+            @Override
+            public void process(InputStream in) throws IOException {
+                try{
+                    message.set(IOUtils.toString(in));
+                }catch(Exception e){
+                    getLogger().error("Failed to read flowfile " + e.getMessage());
                 }
-            });
-       }
-
-        session.transfer(flowfile, RELATIONSHIP_SUCCESS);
+            }
+        });
+        try {
+            session.remove(flowfile);
+        } catch (Exception e) {
+             getLogger().error("Failed to remove flowfile " + e.getMessage());
+             return;
+        }       
+       
+        String output = message.get();
+        
+        if ((output == null) || output.isEmpty()) {
+            return;
+        }
+        
+        try {
+            mqttClient.publish(topic, output.getBytes(), 0, false);
+        } catch(MqttException me) {
+            getLogger().error("msg "+me.getMessage());          
+        }       
     }
-
 }
