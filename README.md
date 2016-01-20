@@ -21,7 +21,11 @@ Note that the use of spaces is important. There should be spaces between the dev
 
 ### NiFi version and patch
 
-This was tested with NiFi 0.4.1. The PutFile processor needs to be patched to support append mode - see this page for a patch: https://issues.apache.org/jira/browse/NIFI-958. When this is applied, the video will cycle through intervals on a basis that can be configured in GetMQTTVideoProcessor and GetMQTTAudioProcessor (second, minute, hour, day).
+This was tested with NiFi 0.4.1. The PutFile processor needs to be patched to support append mode. This repo includes a patch file that can be used for to add the append mode. Copy it to the NiFi source directory and execute this command there:
+
+    git apply PutFile.patch
+    
+This is based on the patch here - https://issues.apache.org/jira/browse/NIFI-958 - but with the file writes implemented differently. When this is applied, the video will cycle through intervals on a basis that can be configured in GetMQTTVideoProcessor and GetMQTTAudioProcessor (second, minute, hour, day).
 
 ### Build
 

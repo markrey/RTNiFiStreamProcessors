@@ -65,6 +65,8 @@ public class GetMQTTVideoProcessor extends AbstractProcessor implements MqttCall
     String topic;
     String broker;
     String clientID;
+    double lastTime;
+    boolean firstTime = true;
     
     MemoryPersistence persistence = new MemoryPersistence();
     MqttClient mqttClient;
@@ -203,6 +205,7 @@ public class GetMQTTVideoProcessor extends AbstractProcessor implements MqttCall
                 obj = new JSONObject(new String(m.message, "UTF-8"));
                 originalDeviceID = obj.get("deviceID").toString();
                 originalTimestamp = obj.get("timestamp").toString();
+                               
             } catch(Exception e) {
                 getLogger().error("Failed to process message");
                 continue;
@@ -216,15 +219,20 @@ public class GetMQTTVideoProcessor extends AbstractProcessor implements MqttCall
                 continue;
             }
             final byte[] video = bytes;
-            
-            // obj now just contains the metadata but no video data
-            
-            final JSONObject metadata = obj;
-             
+                         
             // work out the video filename
             
             Calendar originalCalendar = new GregorianCalendar();
             double originalTimeMs = Double.valueOf(originalTimestamp) * 1000.0;
+            
+            if (firstTime) {
+                firstTime = false;
+                lastTime = originalTimeMs;
+            }
+            if (lastTime > originalTimeMs) {
+                getLogger().error("Timestamp error");              
+            }
+            lastTime = originalTimeMs;
             originalCalendar.setTimeInMillis((long)originalTimeMs);
             String videoFilename = new String();
             
@@ -256,6 +264,12 @@ public class GetMQTTVideoProcessor extends AbstractProcessor implements MqttCall
                     break;
             }
             
+            // obj now just contains the metadata but no video data
+
+            obj.put("filename", videoFilename);
+            obj.put("length", video.length);
+            final JSONObject metadata = obj;
+
             metadataFlowfile = session.putAttribute(metadataFlowfile, CoreAttributes.FILENAME.key(), originalDeviceID);
             metadataFlowfile = session.append(metadataFlowfile, new OutputStreamCallback() {
 
@@ -277,6 +291,7 @@ public class GetMQTTVideoProcessor extends AbstractProcessor implements MqttCall
 
        session.transfer(metadataFlowfile, RELATIONSHIP_METADATA);
        session.transfer(videoFlowfile, RELATIONSHIP_VIDEO);
+       session.commit();
     }
 
 }
