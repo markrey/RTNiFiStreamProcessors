@@ -193,10 +193,10 @@ public class GetMQTTVideoProcessor extends AbstractProcessor implements MqttCall
         if (messageList.isEmpty())
             return;
         
-        FlowFile metadataFlowfile = session.create();
-        FlowFile videoFlowfile = session.create();
         Iterator iterator = messageList.iterator();
         while (iterator.hasNext()) {
+            FlowFile metadataFlowfile = session.create();
+            FlowFile videoFlowfile = session.create();
             final MQTTQueueMessage m = (MQTTQueueMessage)iterator.next();
             JSONObject obj;
             String originalDeviceID;
@@ -287,11 +287,10 @@ public class GetMQTTVideoProcessor extends AbstractProcessor implements MqttCall
                      out.write(video);
                 }
             });
-       }
+            session.transfer(metadataFlowfile, RELATIONSHIP_METADATA);
+            session.transfer(videoFlowfile, RELATIONSHIP_VIDEO);
+        }
 
-       session.transfer(metadataFlowfile, RELATIONSHIP_METADATA);
-       session.transfer(videoFlowfile, RELATIONSHIP_VIDEO);
-       session.commit();
     }
 
 }

@@ -166,9 +166,9 @@ public class GetMQTTSensorProcessor extends AbstractProcessor implements MqttCal
         if (messageList.isEmpty())
             return;
         
-        FlowFile flowfile = session.create();
         Iterator iterator = messageList.iterator();
         while (iterator.hasNext()) {
+            FlowFile flowfile = session.create();
             final MQTTQueueMessage m = (MQTTQueueMessage)iterator.next();
             String originalDeviceID;
             try {
@@ -186,9 +186,9 @@ public class GetMQTTSensorProcessor extends AbstractProcessor implements MqttCal
                      out.write(m.message);
                 }
             });
+            session.transfer(flowfile, RELATIONSHIP_SUCCESS);
        }
 
-        session.transfer(flowfile, RELATIONSHIP_SUCCESS);
     }
 
 }

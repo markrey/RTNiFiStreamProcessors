@@ -191,10 +191,10 @@ public class GetMQTTAudioProcessor extends AbstractProcessor implements MqttCall
         if (messageList.isEmpty())
             return;
         
-        FlowFile metadataFlowfile = session.create();
-        FlowFile audioFlowfile = session.create();
         Iterator iterator = messageList.iterator();
         while (iterator.hasNext()) {
+            FlowFile metadataFlowfile = session.create();
+            FlowFile audioFlowfile = session.create();
             final MQTTQueueMessage m = (MQTTQueueMessage)iterator.next();
             JSONObject obj;
             String originalDeviceID;
@@ -273,10 +273,8 @@ public class GetMQTTAudioProcessor extends AbstractProcessor implements MqttCall
                      out.write(audio);
                 }
             });
+            session.transfer(metadataFlowfile, RELATIONSHIP_METADATA);
+            session.transfer(audioFlowfile, RELATIONSHIP_AUDIO);
        }
-
-       session.transfer(metadataFlowfile, RELATIONSHIP_METADATA);
-       session.transfer(audioFlowfile, RELATIONSHIP_AUDIO);
     }
-
 }
