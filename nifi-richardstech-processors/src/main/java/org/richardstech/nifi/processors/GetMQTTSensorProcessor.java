@@ -187,6 +187,7 @@ public class GetMQTTSensorProcessor extends AbstractProcessor implements MqttCal
                 }
             });
             session.transfer(flowfile, RELATIONSHIP_SUCCESS);
+            session.commit();
        }
 
     }

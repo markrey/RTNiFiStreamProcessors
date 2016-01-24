@@ -289,6 +289,7 @@ public class GetMQTTVideoProcessor extends AbstractProcessor implements MqttCall
             });
             session.transfer(metadataFlowfile, RELATIONSHIP_METADATA);
             session.transfer(videoFlowfile, RELATIONSHIP_VIDEO);
+            session.commit();
         }
 
     }

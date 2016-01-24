@@ -275,6 +275,7 @@ public class GetMQTTAudioProcessor extends AbstractProcessor implements MqttCall
             });
             session.transfer(metadataFlowfile, RELATIONSHIP_METADATA);
             session.transfer(audioFlowfile, RELATIONSHIP_AUDIO);
+            session.commit();
        }
     }
 }
