@@ -15,7 +15,6 @@
 package org.richardstech.nifi.processors;
 
 import org.apache.nifi.components.PropertyDescriptor;
-import org.apache.nifi.components.PropertyValue;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.*;
 import org.apache.nifi.annotation.behavior.ReadsAttribute;
@@ -31,14 +30,12 @@ import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.io.OutputStreamCallback;
-import org.apache.nifi.flowfile.attributes.CoreAttributes;
 
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
-import org.eclipse.paho.client.mqttv3.MqttTopic;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 
@@ -46,21 +43,14 @@ import java.util.*;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.io.OutputStream;
 import java.io.IOException;
-import javax.xml.bind.annotation.adapters.HexBinaryAdapter;
-import org.json.JSONObject;
-import java.util.Date;
 
-@Tags({"GetMQTTVideoProcessor"})
-@CapabilityDescription("Gets video messages from an MQTT broker")
+@Tags({"GetMQTTProcessor"})
+@CapabilityDescription("Gets messages from an MQTT broker")
 @SeeAlso({})
 @ReadsAttributes({@ReadsAttribute(attribute="", description="")})
-@WritesAttributes({@WritesAttribute(attribute="", description="")})
-public class GetMQTTVideoProcessor extends AbstractProcessor implements MqttCallback {
-
-    public static final String CYCLE_SECOND = "every second";
-    public static final String CYCLE_MINUTE = "every minute";
-    public static final String CYCLE_HOUR = "every hour";
-    public static final String CYCLE_DAY = "every day";
+@WritesAttributes({@WritesAttribute(attribute="broker", description="MQTT broker that was the message source"),
+    @WritesAttribute(attribute="topic", description="MQTT topic on which message was received")})
+public class GetMQTTProcessor extends AbstractProcessor implements MqttCallback {
 
     String topic;
     String broker;
@@ -94,25 +84,12 @@ public class GetMQTTVideoProcessor extends AbstractProcessor implements MqttCall
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .build();
 
-    public static final PropertyDescriptor PROPERTY_CYCLE_INTERVAL = new PropertyDescriptor.Builder()
-            .name("New file cycle interval")
-            .description("Period covered by each individual video file")
-            .required(true)
-            .defaultValue(CYCLE_HOUR)
-            .allowableValues(CYCLE_SECOND, CYCLE_MINUTE, CYCLE_HOUR, CYCLE_DAY)
+    public static final Relationship RELATIONSHIP_MQTTMESSAGE = new Relationship.Builder()
+            .name("MQTTMessage")
+            .description("MQTT message output")
             .build();
 
-    public static final Relationship RELATIONSHIP_METADATA = new Relationship.Builder()
-            .name("Metadata")
-            .description("Video metadata output")
-            .build();
-
-    public static final Relationship RELATIONSHIP_VIDEO = new Relationship.Builder()
-            .name("Video")
-            .description("Video output")
-            .build();
-
-    private List<PropertyDescriptor> descriptors;
+     private List<PropertyDescriptor> descriptors;
 
     private Set<Relationship> relationships;
     
@@ -136,12 +113,11 @@ public class GetMQTTVideoProcessor extends AbstractProcessor implements MqttCall
         descriptors.add(PROPERTY_BROKER_ADDRESS);
         descriptors.add(PROPERTY_MQTT_TOPIC);
         descriptors.add(PROPERTY_MQTT_CLIENTID);
-        descriptors.add(PROPERTY_CYCLE_INTERVAL);
+      
         this.descriptors = Collections.unmodifiableList(descriptors);
 
         final Set<Relationship> relationships = new HashSet<Relationship>();
-        relationships.add(RELATIONSHIP_METADATA);
-        relationships.add(RELATIONSHIP_VIDEO);
+        relationships.add(RELATIONSHIP_MQTTMESSAGE);
         this.relationships = Collections.unmodifiableSet(relationships);
     }
 
@@ -187,111 +163,26 @@ public class GetMQTTVideoProcessor extends AbstractProcessor implements MqttCall
     public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
         final List messageList = new LinkedList();
         
-        final String cycleInterval = context.getProperty(PROPERTY_CYCLE_INTERVAL).getValue();
-
         mqttQueue.drainTo(messageList);
         if (messageList.isEmpty())
             return;
         
         Iterator iterator = messageList.iterator();
         while (iterator.hasNext()) {
-            FlowFile metadataFlowfile = session.create();
-            FlowFile videoFlowfile = session.create();
+            FlowFile messageFlowfile = session.create();
             final MQTTQueueMessage m = (MQTTQueueMessage)iterator.next();
-            JSONObject obj;
-            String originalDeviceID;
-            String originalTimestamp;
-            try {
-                obj = new JSONObject(new String(m.message, "UTF-8"));
-                originalDeviceID = obj.get("deviceID").toString();
-                originalTimestamp = obj.get("timestamp").toString();
-                               
-            } catch(Exception e) {
-                getLogger().error("Failed to process message");
-                continue;
-            }
-            byte[] bytes = new byte[0];
-            HexBinaryAdapter adapter = new HexBinaryAdapter();
-            try {
-                bytes = adapter.unmarshal(obj.remove("video").toString());
-            } catch(Exception e) {
-                getLogger().error("Video was not in correct hex string format");
-                continue;
-            }
-            final byte[] video = bytes;
-                         
-            // work out the video filename
-            
-            Calendar originalCalendar = new GregorianCalendar();
-            double originalTimeMs = Double.valueOf(originalTimestamp) * 1000.0;
-            
-            if (firstTime) {
-                firstTime = false;
-                lastTime = originalTimeMs;
-            }
-            if (lastTime > originalTimeMs) {
-                getLogger().error("Timestamp error");              
-            }
-            lastTime = originalTimeMs;
-            originalCalendar.setTimeInMillis((long)originalTimeMs);
-            String videoFilename = new String();
-            
-            switch (cycleInterval) {
-                case CYCLE_SECOND:
-                    videoFilename = String.format("%s_%4d_%02d_%02d_%02d_%02d_%02d", 
-                            originalDeviceID, originalCalendar.get(Calendar.YEAR), originalCalendar.get(Calendar.MONTH) + 1,
-                            originalCalendar.get(Calendar.DAY_OF_MONTH), originalCalendar.get(Calendar.HOUR_OF_DAY),
-                            originalCalendar.get(Calendar.MINUTE), originalCalendar.get(Calendar.SECOND));
-                    break;
-                    
-                case CYCLE_MINUTE:
-                    videoFilename = String.format("%s_%4d_%02d_%02d_%02d_%02d", 
-                            originalDeviceID, originalCalendar.get(Calendar.YEAR), originalCalendar.get(Calendar.MONTH) + 1,
-                            originalCalendar.get(Calendar.DAY_OF_MONTH), originalCalendar.get(Calendar.HOUR_OF_DAY),
-                            originalCalendar.get(Calendar.MINUTE));
-                    break;
-                    
-                case CYCLE_HOUR:
-                    videoFilename = String.format("%s_%4d_%02d_%02d_%02d", 
-                            originalDeviceID, originalCalendar.get(Calendar.YEAR), originalCalendar.get(Calendar.MONTH) + 1,
-                            originalCalendar.get(Calendar.DAY_OF_MONTH), originalCalendar.get(Calendar.HOUR_OF_DAY));
-                    break;
-                    
-                case CYCLE_DAY:
-                    videoFilename = String.format("%s_%4d_%02d_%02d", 
-                            originalDeviceID, originalCalendar.get(Calendar.YEAR), originalCalendar.get(Calendar.MONTH) + 1,
-                            originalCalendar.get(Calendar.DAY_OF_MONTH));
-                    break;
-            }
-            
-            // obj now just contains the metadata but no video data
-
-            obj.put("filename", videoFilename);
-            obj.put("length", video.length);
-            final JSONObject metadata = obj;
-
-            metadataFlowfile = session.putAttribute(metadataFlowfile, CoreAttributes.FILENAME.key(), originalDeviceID);
-            metadataFlowfile = session.append(metadataFlowfile, new OutputStreamCallback() {
+    
+            messageFlowfile = session.putAttribute(messageFlowfile, "broker", broker);
+            messageFlowfile = session.putAttribute(messageFlowfile, "topic", topic);
+            messageFlowfile = session.write(messageFlowfile, new OutputStreamCallback() {
 
                 @Override
                 public void process(final OutputStream out) throws IOException {
-                     out.write(metadata.toString().getBytes());
+                     out.write(m.message);
                 }
             });
-            videoFlowfile = session.putAttribute(videoFlowfile, CoreAttributes.FILENAME.key(), videoFilename);
-            videoFlowfile = session.append(videoFlowfile, new OutputStreamCallback() {
-
-            
-                @Override
-                public void process(final OutputStream out) throws IOException {
-                     out.write(video);
-                }
-            });
-            session.transfer(metadataFlowfile, RELATIONSHIP_METADATA);
-            session.transfer(videoFlowfile, RELATIONSHIP_VIDEO);
+            session.transfer(messageFlowfile, RELATIONSHIP_MQTTMESSAGE);
             session.commit();
         }
-
     }
-
 }

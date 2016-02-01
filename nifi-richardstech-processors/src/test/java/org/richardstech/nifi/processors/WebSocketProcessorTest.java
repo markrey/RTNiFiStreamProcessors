@@ -14,20 +14,20 @@
 
 package org.richardstech.nifi.processors;
 
-import org.richardstech.nifi.processors.GetMQTTVideoProcessor;
+import org.richardstech.nifi.processors.WebSocketProcessor;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.Before;
 import org.junit.Test;
 
 
-public class GetMQTTVideoProcessorTest {
+public class WebSocketProcessorTest {
 
     private TestRunner testRunner;
 
     @Before
     public void init() {
-        testRunner = TestRunners.newTestRunner(GetMQTTVideoProcessor.class);
+        testRunner = TestRunners.newTestRunner(WebSocketProcessor.class);
     }
 
     @Test

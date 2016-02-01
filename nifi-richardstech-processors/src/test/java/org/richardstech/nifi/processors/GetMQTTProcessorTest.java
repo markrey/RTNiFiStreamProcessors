@@ -14,20 +14,20 @@
 
 package org.richardstech.nifi.processors;
 
-import org.richardstech.nifi.processors.GetMQTTAudioProcessor;
+import org.richardstech.nifi.processors.GetMQTTProcessor;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.Before;
 import org.junit.Test;
 
 
-public class GetMQTTAudioProcessorTest {
+public class GetMQTTProcessorTest {
 
     private TestRunner testRunner;
 
     @Before
     public void init() {
-        testRunner = TestRunners.newTestRunner(GetMQTTAudioProcessor.class);
+        testRunner = TestRunners.newTestRunner(GetMQTTProcessor.class);
     }
 
     @Test

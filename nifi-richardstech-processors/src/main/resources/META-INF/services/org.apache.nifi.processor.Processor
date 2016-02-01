@@ -12,8 +12,9 @@
 #//  See the License for the specific language governing permissions and
 #//  limitations under the License.
 
-org.richardstech.nifi.processors.GetMQTTSensorProcessor
-org.richardstech.nifi.processors.GetMQTTVideoProcessor
-org.richardstech.nifi.processors.GetMQTTAudioProcessor
-org.richardstech.nifi.processors.ReactToInsteonProcessor
+org.richardstech.nifi.processors.GetMQTTProcessor
 org.richardstech.nifi.processors.PutMQTTProcessor
+org.richardstech.nifi.processors.RTMQTTVideoProcessor
+org.richardstech.nifi.processors.RTMQTTAudioProcessor
+org.richardstech.nifi.processors.ReactToInsteonProcessor
+org.richardstech.nifi.processors.WebSocketProcessor
