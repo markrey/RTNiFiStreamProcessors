@@ -14,7 +14,7 @@
 
 package org.richardstech.nifi.processors;
 
-import org.richardstech.nifi.processors.ReactToInsteonProcessor;
+import org.richardstech.nifi.processors.PutMQTTProcessor;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.Before;

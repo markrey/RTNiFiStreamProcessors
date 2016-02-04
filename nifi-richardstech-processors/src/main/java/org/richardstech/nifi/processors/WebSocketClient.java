@@ -27,23 +27,41 @@ import javax.websocket.EndpointConfig;
 import javax.websocket.MessageHandler;
 import javax.websocket.Session;
 
+import java.util.concurrent.Future;
+
 public class WebSocketClient {
     private Session session;
     private final WebSocketProcessor wsProc;
     private ClientManager client;
+    private Future<Session> clientFuture;
+    
+    volatile boolean connected = false;
+    volatile boolean connectInProgress = false;
     
     public WebSocketClient(WebSocketProcessor proc) {
         wsProc = proc;
+    }
+    
+    public synchronized boolean isConnected() {
+        return connected;
+    }
+
+    public synchronized boolean isConnectInProgress() {
+        return connectInProgress;
     }
 
     public void connect(String url) {
         final ClientEndpointConfig configuration = ClientEndpointConfig.Builder.create().build();
         client = ClientManager.createClient();
-
+        
         ClientManager.ReconnectHandler reconnectHandler = new ClientManager.ReconnectHandler() {
             
             @Override
             public boolean onDisconnect(CloseReason closeReason) {
+                synchronized(this) {
+                    connected = false;
+                    connectInProgress = false;
+                }
                 return true;
             }
 
@@ -59,11 +77,16 @@ public class WebSocketClient {
         };
  
         try {
+            connected = connectInProgress = false;
             client.getProperties().put(ClientProperties.RECONNECT_HANDLER, reconnectHandler);
-            client.connectToServer(
+            clientFuture = client.asyncConnectToServer(
                 new Endpoint() {
                     @Override
                     public void onOpen(Session session,EndpointConfig config) {
+                        synchronized(this) {
+                            connectInProgress = false;
+                            connected = true;
+                        }
                         WebSocketClient.this.session = session;
                         session.addMessageHandler(new MessageHandler.Whole<String>() {
                             @Override
@@ -73,6 +96,7 @@ public class WebSocketClient {
                         });
                     }
                 }, configuration,new URI(url));
+            connectInProgress = true;
         } catch (Exception e) {
             e.printStackTrace();
         }

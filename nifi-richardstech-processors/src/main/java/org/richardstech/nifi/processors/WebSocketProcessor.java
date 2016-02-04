@@ -53,10 +53,14 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 public class WebSocketProcessor extends AbstractProcessor {
     
+    private static final long RESPONSE_TIMEOUT = 2000;
+    
     private String serverURL;
     private WebSocketClient wsClient;
      
     private boolean waitingForResponse;
+    
+    private long responseTimer;
 
     private LinkedBlockingQueue<String> receivedMessages = new LinkedBlockingQueue<>();
 
@@ -125,7 +129,7 @@ public class WebSocketProcessor extends AbstractProcessor {
     @Override
     public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
  
-        final AtomicReference<String> origData = new AtomicReference<>();
+        RTJSONFlowFile jsonFlowFile = new RTJSONFlowFile();
  
         processReceivedMessages(session);
         
@@ -133,30 +137,34 @@ public class WebSocketProcessor extends AbstractProcessor {
         if (flowfile == null)
             return;
          
+        if (!wsClient.isConnected()) {
+            getLogger().error("FlowFile but no websocket connection"); 
+            waitingForResponse = false;
+            session.remove(flowfile);
+            return;           
+        }
+        
         if (waitingForResponse) {
             // waiting for response - just discard flowfile
             session.remove(flowfile);
             return;
         }
         
-        // do the read
-        
-        session.read(flowfile, new InputStreamCallback() {
-            @Override
-            public void process(InputStream in) throws IOException {
-                try{
-                    origData.set(IOUtils.toString(in));
-                }catch(Exception e){
-                    getLogger().error("Failed to read flowfile " + e.getMessage());
-                }
-            }
-        });
-                
-        session.remove(flowfile);
+        final JSONObject jsonMessage;
         
         try {
-            wsClient.sendMessage(origData.get());
+            jsonMessage = jsonFlowFile.read(session, flowfile);
+        } catch(Exception e) {
+            getLogger().error("Failed to read flowfile " + e.getMessage()); 
+            return;
+        } finally {
+            session.remove(flowfile);
+        }
+        
+        try {
+            wsClient.sendMessage(jsonMessage.toString());
             waitingForResponse = true;
+            responseTimer = System.currentTimeMillis();
         } catch (Exception e) {
             getLogger().error("Failed to send frame to service " + e.getMessage());            
         }
@@ -165,29 +173,38 @@ public class WebSocketProcessor extends AbstractProcessor {
     public void processReceivedMessages(final ProcessSession session) {
         final List messageList = new LinkedList();
         
+        if (waitingForResponse && ((System.currentTimeMillis() - responseTimer) >= RESPONSE_TIMEOUT)) {
+            waitingForResponse = false;
+            getLogger().error("Timed out response from server");
+        }
+        
         receivedMessages.drainTo(messageList);
         if (messageList.isEmpty())
             return;
-        
+                
         Iterator iterator = messageList.iterator();
         while (iterator.hasNext()) {
-            FlowFile messageFlowfile = session.create();
+            RTJSONFlowFile jsonFlowFile = new RTJSONFlowFile();
+            FlowFile flowfile = session.create();
             final String m = (String)iterator.next();
-    
-            messageFlowfile = session.write(messageFlowfile, new OutputStreamCallback() {
-
-                @Override
-                public void process(final OutputStream out) throws IOException {
-                     out.write(m.getBytes());
-                }
-            });
-            session.transfer(messageFlowfile, RELATIONSHIP_SUCCESS);
+            
+            try {
+                flowfile = jsonFlowFile.write(session, flowfile, m);
+                session.transfer(flowfile, RELATIONSHIP_SUCCESS);
+             } catch (Exception e) {
+                session.transfer(flowfile, RELATIONSHIP_FAILURE);
+                getLogger().error("Failed to forward FlowFile from server " + e.getMessage());  
+            }
             session.commit();
+            
+            waitingForResponse = !jsonFlowFile.isFinal();
+            if (!waitingForResponse)
+                // discard any other queued messages if final flag has been seen
+                break;
         }
     }
     
     public void newWSMessage(String message) {
-        waitingForResponse = false;
         receivedMessages.add(message);
     }
 }

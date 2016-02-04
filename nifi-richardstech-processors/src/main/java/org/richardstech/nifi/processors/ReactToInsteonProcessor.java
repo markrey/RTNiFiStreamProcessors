@@ -271,7 +271,7 @@ public class ReactToInsteonProcessor extends AbstractProcessor {
     private boolean getDeviceState(Map deviceLevels, String deviceID) {
         if (deviceID.startsWith("!")) {
             deviceID = deviceID.replaceFirst("!", "");
-            return Integer.parseInt(deviceLevels.get(deviceID).toString()) == 0;
+            return Integer.parseInt(deviceLevels.get(deviceID).toString()) <= 0;
         } else {
             return Integer.parseInt(deviceLevels.get(deviceID).toString()) > 0;                
         }
